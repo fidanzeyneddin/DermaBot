@@ -1,0 +1,11 @@
+# Vektör Veritabanı
+rag_veritabani/
+
+# Python Önbellek Dosyaları
+__pycache__/
+*.pyc
+
+# Ortam değişkenleri ve sanal ortam
+.env
+venv/
+env/
