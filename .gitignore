@@ -1,5 +1,5 @@
 # Vektör Veritabanı
-rag_veritabani/
+*.sqlite
 
 # Python Önbellek Dosyaları
 __pycache__/

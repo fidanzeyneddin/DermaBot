@@ -1,6 +1,6 @@
 # 💄 Güzellik ve Cilt Bakım Asistanı (Yerel RAG Projesi)
 
-**Geliştirici:** Fidan  
+**Geliştirici:** Fidan  Zeyneddin
 **Kurum:** İstanbul Nişantaşı Üniversitesi  
 
 ## 📌 Projenin Amacı
@@ -8,8 +8,8 @@ Bu proje, kullanıcıların cilt bakımı ve makyaj teknikleri hakkındaki sorul
 
 ## ⚙️ Nasıl Çalışır? (Sistem Mimarisi)
 Proje, dışarıdan bilgi uydurmayı (halüsinasyon) önlemek için bilgileri yalnızca sağlanan yerel bir veri tabanından çeker.
-1. **Veri Hazırlama (Ingestion):** `makeup.txt` içindeki cilt bakım rehberi, akıllı parçalara bölünerek ChromaDB vektör veri tabanına işlenir.
-2. **Bağlam Getirme (Retrieval):** Kullanıcı bir soru sorduğunda, sistem bu soruyu vektörel olarak arar ve veri tabanından en alakalı 3 paragrafı getirir.
+1. **Veri Hazırlama (Ingestion):** `makeup.txt` içindeki cilt bakım rehberi, akıllı parçalara bölünerek **SQLite** veri tabanına işlenir.
+2. **Bağlam Getirme (Retrieval):** Kullanıcı bir soru sorduğunda, sistem bu soruyu vektörel olarak arar, Numpy ile kosinüs benzerliği hesaplar ve veri tabanından en alakalı 3 paragrafı getirir.
 3. **Cevap Üretme (Generation):** Bulunan metinler ve kullanıcının sorusu, Foundry Local üzerinden çalışan **Qwen 1.5B Instruct** modeline iletilir. Model, katı kurallarla belirlenmiş sistem mesajı sayesinde sadece bu bağlamı kullanarak cevap üretir.
 4. **Kullanıcı Arayüzü:** Tüm bu süreç, Streamlit kullanılarak geliştirilen modern ve interaktif bir web arayüzünde gerçekleşir.
 
@@ -18,7 +18,7 @@ Projeyi kendi bilgisayarınızda çalıştırmak için aşağıdaki adımları i
 
 **1. Gerekli Kütüphaneleri Yükleyin:**
 Terminalinizde aşağıdaki komutu çalıştırarak gereksinimleri kurun:
-`pip install streamlit chromadb foundry-local-sdk`
+`pip install -r requirements.txt`
 
 **2. Veri Tabanını Oluşturun:**
 Rehberdeki bilgileri vektör veri tabanına yüklemek için veri yükleme betiğini bir kez çalıştırın:
