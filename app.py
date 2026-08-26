@@ -1,6 +1,8 @@
 import streamlit as st
 from foundry_local_sdk import FoundryLocalManager, Configuration
-import chromadb
+import sqlite3
+import json
+import numpy as np
 import atexit
 
 # ==========================================
@@ -22,70 +24,105 @@ st.title("💄 Güzellik ve Cilt Bakım Asistanı")
 st.markdown("Cilt bakımı ve makyaj rehberime bağlı olarak çalışır. Tamamen çevrimdışıdır!")
 
 # ==========================================
-# 2. SİSTEMİ VE MODELİ HAZIRLAMA (ÖNBELLEKLİ)
+# YARDIMCI FONKSİYONLAR
+# ==========================================
+def kosinus_benzerligi(vec1, vec2):
+    dot_product = np.dot(vec1, vec2)
+    norm_a = np.linalg.norm(vec1)
+    norm_b = np.linalg.norm(vec2)
+    return dot_product / (norm_a * norm_b)
+
+def get_top_chunks(query, conn, embedding_client, k=3):
+    # ÇÖZÜM 1: SDK'nın beklediği güncel ve doğru komut
+    response = embedding_client.generate_embedding(query)
+    query_embedding = response.data[0].embedding
+    
+    cursor = conn.cursor()
+    cursor.execute("SELECT content, embedding FROM documents")
+    kayitlar = cursor.fetchall()
+    
+    benzerlikler = []
+    for icerik, vektor_json in kayitlar:
+        vektor = json.loads(vektor_json)
+        skor = kosinus_benzerligi(query_embedding, vektor)
+        benzerlikler.append((skor, icerik))
+        
+    benzerlikler.sort(key=lambda x: x[0], reverse=True)
+    return [item[1] for item in benzerlikler[:k]]
+
+# ==========================================
+# 2. SİSTEMİ VE MODELLERİ HAZIRLAMA
 # ==========================================
 @st.cache_resource(show_spinner="Asistan Hazırlanıyor... Lütfen bekleyin.")
 def sistemi_hazirla():
-    """Veritabanını ve yerel dil modelini (LLM) bir kere yükleyip önbelleğe alır."""
-    # Vektör veritabanına bağlan
-    chroma_client = chromadb.PersistentClient(path="./rag_veritabani")
-    collection = chroma_client.get_collection(name="makyaj_rehberi")
+    conn = sqlite3.connect("rag_veritabani.sqlite", check_same_thread=False)
     
-    # Foundry Local Yöneticisini başlat
+    # ÇÖZÜM 2: Doğru başlatma metodu (Instance hatasını çözer)
     try:
         config = Configuration(app_name="GuzellikAsistani")
-        manager = FoundryLocalManager(config)
+        FoundryLocalManager.initialize(config)
     except Exception:
-        manager = FoundryLocalManager._instance
-    
-    # Qwen 1.5B modelini bul ve belleğe yükle
-    model = None
-    for m in manager.catalog.list_models():
-        if "qwen2.5-1.5b-instruct" in getattr(m, 'id', '').lower() or "qwen2.5-1.5b-instruct" in getattr(m, 'name', '').lower():
-            model = m
-            break
-            
-    if model is None:
-        raise Exception("Eyvah! 1.5B modeli katalogda bulunamadı.")
+        pass # Zaten başlatılmışsa devam et
         
-    if not model.is_loaded:
-        try:
-            if hasattr(model, 'download'): model.download()
-            elif hasattr(manager.catalog, 'download_model'): manager.catalog.download_model(model.id)
-        except: pass
-        model.load()
+    manager = FoundryLocalManager.instance
+    
+    embedding_model = None
+    chat_model = None
+    
+    for m in manager.catalog.list_models():
+        model_id = getattr(m, 'id', '').lower()
+        model_name = getattr(m, 'name', '').lower()
+        
+        if "embedding" in model_id or "embedding" in model_name:
+            if embedding_model is None: 
+                embedding_model = m
+                
+        if "qwen2.5-1.5b-instruct" in model_id or "qwen2.5-1.5b-instruct" in model_name:
+            chat_model = m
+
+    if embedding_model is None or chat_model is None:
+        raise Exception("Gerekli modellerden biri veya her ikisi katalogda bulunamadı!")
+        
+    for model in [embedding_model, chat_model]:
+        if not model.is_loaded:
+            try:
+                if hasattr(model, 'download'): model.download()
+                elif hasattr(manager.catalog, 'download_model'): manager.catalog.download_model(model.id)
+            except: pass
+            model.load()
         
     try: manager.start_web_service()
     except Exception: pass
+    
+    emb_client = embedding_model.get_embedding_client()
+    ch_client = chat_model.get_chat_client()
         
-    return collection, manager, model
+    return conn, manager, emb_client, ch_client
 
-# Uygulama başlarken sistemi kur
-collection, manager, model = sistemi_hazirla()
+conn, manager, embedding_client, chat_client = sistemi_hazirla()
 
-# Kapanışta servisi durdurarak kaynak sızıntısını önle
 def servisi_kapat():
-    try: manager.stop_web_service()
+    try: 
+        conn.close()
+        manager.stop_web_service()
     except: pass
 atexit.register(servisi_kapat)
 
 # ==========================================
-# 3. SOHBET GEÇMİŞİ (MEMORY)
+# 3. SOHBET GEÇMİŞİ
 # ==========================================
 if "mesajlar" not in st.session_state:
     st.session_state.mesajlar = []
 
-# Eski mesajları arayüze tekrar bas
 for mesaj in st.session_state.mesajlar:
     with st.chat_message(mesaj["role"]):
         st.markdown(mesaj["content"])
 
 # ==========================================
-# 4. KULLANICI ETKİLEŞİMİ VE RAG (RETRIEVAL-AUGMENTED GENERATION)
+# 4. KULLANICI ETKİLEŞİMİ VE RAG
 # ==========================================
 if soru := st.chat_input("Rehbere bir soru sor (Örn: Yağlı ciltler ne kullanmalı?)..."):
     
-    # Kullanıcının sorusunu kaydet ve ekranda göster
     st.session_state.mesajlar.append({"role": "user", "content": soru})
     with st.chat_message("user"):
         st.markdown(soru)
@@ -95,41 +132,31 @@ if soru := st.chat_input("Rehbere bir soru sor (Örn: Yağlı ciltler ne kullanm
         
         with st.spinner("🔍 Rehber taranıyor ve cevap üretiliyor..."):
             try:
-                client = model.get_chat_client()
-                
-                # ADIM 1: GETİRME (RETRIEVAL)
-                # Veritabanından soruyla en çok eşleşen 3 paragrafı bul
-                sonuclar = collection.query(query_texts=[soru], n_results=3)
-                bulunan_metinler = sonuclar['documents'][0]
+                bulunan_metinler = get_top_chunks(query=soru, conn=conn, embedding_client=embedding_client, k=3)
                 baglam_metni = "\n\n---\n\n".join(bulunan_metinler)
                 
-                # ADIM 2: SİSTEM MESAJI (İngilizce Komut, Türkçe Çıktı)
-                sistem_mesaji = f"""You are a strict data extraction assistant.
-TASK: Answer the user's question using ONLY the provided TEXT.
-RULES:
-1. Extract the exact sentences from the TEXT. Do not generate new information.
-2. If the TEXT does not explicitly contain the answer, you MUST reply ONLY with this exact Turkish phrase: "Maalesef rehberimde bu konuya dair net bir bilgi bulunmuyor."
-3. Always respond in Turkish.
+                sistem_mesaji = f"""Aşağıdaki BAĞLAM metninde yazan bilgileri kullanarak soruyu yanıtla. Sadece BAĞLAM'daki cümleleri kullan.
 
-TEXT:
+BAĞLAM:
 {baglam_metni}"""
+
+                # Arka planda veritabanından hangi metinlerin geldiğini terminalde görmek için:
+                print("\n\n=== LLM'E GİDEN BAĞLAM METNİ ===")
+                print(baglam_metni)
+                print("==================================\n\n")
                 
-                # ADIM 3: ÜRETİM (GENERATION)
-                # LLM'e soruyu ve bağlamı gönder, cevabı al
-                response = client.complete_chat(
+                response = chat_client.complete_chat(
                     messages=[
                         {"role": "system", "content": sistem_mesaji},
                         {"role": "user", "content": soru}
                     ]
                 )
                 
-                # Gelen cevabı güvenli bir şekilde formatla
                 if hasattr(response, 'choices'): cevap = response.choices[0].message.content
                 elif hasattr(response, 'message'): cevap = response.message.content
                 elif hasattr(response, 'content'): cevap = response.content
                 else: cevap = str(response)
                 
-                # Cevabı ekrana bas ve geçmişe kaydet
                 cevap_alani.markdown(cevap)
                 st.session_state.mesajlar.append({"role": "assistant", "content": cevap})
                 

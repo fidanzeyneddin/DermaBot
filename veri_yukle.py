@@ -1,28 +1,79 @@
-import chromadb
+import sqlite3
+import json
+from foundry_local_sdk import FoundryLocalManager, Configuration
 
-# ChromaDB veritabanına bağlan
-chroma_client = chromadb.PersistentClient(path="./rag_veritabani")
+def veritabani_olustur():
+    conn = sqlite3.connect("rag_veritabani.sqlite")
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS documents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            content TEXT,
+            embedding TEXT
+        )
+    ''')
+    cursor.execute('DELETE FROM documents') # Kodu tekrar çalıştırırsan veriler çiftlenmesin diye
+    conn.commit()
+    return conn, cursor
 
-# Koleksiyonu sıfırdan oluştur (eski bozuk parçaları temizlemek için)
-try:
-    chroma_client.delete_collection(name="makyaj_rehberi")
-except:
-    pass
+def metni_parcala(dosya_yolu):
+    with open(dosya_yolu, "r", encoding="utf-8") as f:
+        metin = f.read()
+    
+    # Paragraflara ayır
+    parcalar = metin.split("\n\n")
+    return [p.strip() for p in parcalar if len(p.strip()) > 10]
 
-collection = chroma_client.create_collection(name="makyaj_rehberi")
+def main():
+    print("Veritabanı tablosu oluşturuluyor...")
+    conn, cursor = veritabani_olustur()
+    
+    print("Foundry Local başlatılıyor...")
+    try:
+        config = Configuration(app_name="DermabotIngestion")
+        FoundryLocalManager.initialize(config)
+    except Exception:
+        pass
+        
+    manager = FoundryLocalManager.instance
+    
+    # Sadece Embedding modelini bul ve yükle
+    embedding_model = None
+    for m in manager.catalog.list_models():
+        if "embedding" in getattr(m, 'id', '').lower():
+            embedding_model = m
+            break
+            
+    if not embedding_model.is_loaded:
+        try: embedding_model.download()
+        except: pass
+        embedding_model.load()
+    
+    try: manager.start_web_service()
+    except Exception: pass
+    
+    embedding_client = embedding_model.get_embedding_client()
+    
+    print("Rehber okunuyor ve vektörlere dönüştürülüyor...")
+    metin_parcalari = metni_parcala("makeup.txt")
+    
+    for i, paragraf in enumerate(metin_parcalari):
+        print(f"Parça {i+1}/{len(metin_parcalari)} işleniyor...")
+        # Metni vektöre çevir
+        response = embedding_client.generate_embedding(paragraf)
+        vektor = response.data[0].embedding
+        
+        # Vektörü SQLite'a kaydet
+        vektor_json = json.dumps(vektor)
+        cursor.execute('INSERT INTO documents (content, embedding) VALUES (?, ?)', (paragraf, vektor_json))
+        
+    conn.commit()
+    conn.close()
+    
+    try: manager.stop_web_service()
+    except: pass
+    
+    print("Harika! Veritabanı başarıyla oluşturuldu ve veriler kaydedildi.")
 
-# makeup.txt dosyasını oku ve başlıklarına/paragraflarına göre akıllıca böl
-with open("makeup.txt", "r", encoding="utf-8") as f:
-    icerik = f.read()
-
-# Metni ana bölümlere ayırıyoruz ki arama yapıldığında nokta atışı gelsin
-paragraflar = [p.strip() for p in icerik.split("\n\n") if p.strip()]
-
-# Her bir paragrafı veritabanına ayrı birer parça (document) olarak kaydediyoruz
-for i, paragraf in enumerate(paragraflar):
-    collection.add(
-        documents=[paragraf],
-        ids=[f"paragraf_{i}"]
-    )
-
-print(f"🚀 BAŞARILI! {len(paragraflar)} adet detaylı paragraf veritabanına işlendi.")
+if __name__ == "__main__":
+    main()
