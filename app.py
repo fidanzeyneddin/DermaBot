@@ -62,7 +62,7 @@ def sistemi_hazirla():
         config = Configuration(app_name="GuzellikAsistani")
         FoundryLocalManager.initialize(config)
     except Exception:
-        pass # Zaten başlatılmışsa devam et
+        pass 
         
     manager = FoundryLocalManager.instance
     
@@ -136,6 +136,7 @@ if soru := st.chat_input("Rehbere bir soru sor (Örn: Yağlı ciltler ne kullanm
                 baglam_metni = "\n\n---\n\n".join(bulunan_metinler)
                 
                 sistem_mesaji = f"""Aşağıdaki BAĞLAM metninde yazan bilgileri kullanarak soruyu yanıtla. Sadece BAĞLAM'daki cümleleri kullan.
+Eğer sorulan sorunun cevabı BAĞLAM metninde kesinlikle yoksa, uydurma yapma ve sadece "Maalesef rehberimde net bir bilgi bulunmuyor." yaz.
 
 BAĞLAM:
 {baglam_metni}"""
