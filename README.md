@@ -2,7 +2,7 @@
 
 **Geliştirici:** Fidan  Zeyneddin
 **Kurum:** İstanbul Nişantaşı Üniversitesi  
-🎥 **Proje Sunum ve Demo Videosu:** [https://youtu.be/dpIJtaHWKnA](https://youtu.be/dpIJtaHWKnA)
+🎥 **Proje Sunum ve Demo Videosu:** [[https://youtu.be/dpIJtaHWKnA](https://youtu.be/dpIJtaHWKnA)](https://youtu.be/dplJtaHWKnA)
 ## 📌 Projenin Amacı
 Bu proje, kullanıcıların cilt bakımı ve makyaj teknikleri hakkındaki sorularını tamamen çevrimdışı ve güvenli bir şekilde yanıtlamak amacıyla geliştirilmiş yerel bir Q&A (Soru-Cevap) asistanıdır. Microsoft Foundry Local altyapısı kullanılarak inşa edilen bu asistan, internet bağlantısına ihtiyaç duymadan cihaz üzerinde çalışan bir dil modeli (LLM) ile RAG (Retrieval-Augmented Generation) mimarisini birleştirir.
 
